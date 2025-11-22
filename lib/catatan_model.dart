@@ -1,13 +1,15 @@
 import 'package:latlong2/latlong.dart';
 
 class CatatanModel {
-  final LatLng Position;
+  final LatLng position;
   final String note;
   final String address;
+  final String type; // Toko Rumah Kantor
 
   CatatanModel({
-    required this.Position,
+    required this.position,
     required this.note,
     required this.address,
+    required this.type,
   });
 }

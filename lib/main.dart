@@ -4,6 +4,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as latlong;
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 import 'catatan_model.dart';
 
 void main() {
@@ -27,6 +29,70 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final List<CatatanModel> _savedNotes = [];
   final MapController _mapController = MapController();
+
+  // memuat data saat aplikasi dimulai
+  @override
+  void initState() {
+    super.initState();
+    loadNotes();
+  } 
+
+  //Simpan semua catatan ke SharedPreferences
+  Future<void> saveNotes() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    List<String> encoded = _savedNotes.map((note) {
+      return jsonEncode({
+        'latitude': note.position.latitude,
+        'longitude': note.position.longitude,
+        'note': note.note,
+        'address': note.address,
+        'type': note.type,
+      });
+    }).toList();
+
+    await prefs.setStringList('catatan', encoded);
+  }
+
+  //Muat semua catatan dari SharedPreferences
+  Future<void> loadNotes() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String>? data = prefs.getStringList('catatan');
+
+    if (data != null) {
+      setState(() {
+        _savedNotes.clear();
+        for (var item in data) {
+          var decoded = jsonDecode(item);
+          _savedNotes.add(
+            CatatanModel(
+              position: latlong.LatLng(
+                decoded['latitude'],
+                decoded['longitude'],
+              ),
+              note: decoded['note'],
+              address: decoded['address'],
+              type: decoded['type'],
+            ),
+          );
+        }
+      });
+    }
+  }
+
+  // Ikon Marker
+  IconData getMarkerIcon(String type) {
+    switch (type) {
+      case "Rumah":
+        return Icons.home;
+      case "Kantor":
+        return Icons.business;
+      case "Toko":
+        return Icons.store;
+      default:
+        return Icons.location_on;
+    }
+  }
 
   //fungsi untuk mendapatkan lokasi saat ini
   Future<void> _findMyLocation() async {
@@ -59,13 +125,55 @@ class _MapScreenState extends State<MapScreen> {
     );
     String address = placemark.first.street ?? "Alamat tidak dikenal";
 
+    String? selectedType = "Rumah";
+
+    await showDialog(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          title: Text("Tambah Catatan"),
+          content: StatefulBuilder(
+            builder: (context, setStateDialog) {
+              return DropdownButton<String>(
+                value: selectedType,
+                items: ["Rumah", "Kantor", "Toko"]
+                    .map(
+                      (type) =>
+                          DropdownMenuItem(value: type, child: Text(type)),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  setStateDialog(() {
+                    selectedType = value; // ✅ Sekarang dropdown berubah
+                  });
+                },
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text("Ok"),
+            ),
+          ],
+        );
+      },
+    );
+
     // Tampilkan Dialog (Kode UI disederhanakan disini)
     // ... Implementasi Dialog ...
     setState(() {
       _savedNotes.add(
-        CatatanModel(Position: point, note: "Catatan Baru", address: address),
+        CatatanModel(
+          position: point,
+          note: "Catatan Baru",
+          address: address,
+          type: selectedType!,
+        ),
       );
     });
+
+    await saveNotes(); // Simpan catatan setelah ditambahkan
   }
 
   @override
@@ -81,14 +189,45 @@ class _MapScreenState extends State<MapScreen> {
         ),
         children: [
           TileLayer(
-            urlTemplate: 'Https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
           ),
           MarkerLayer(
             markers: _savedNotes
                 .map(
                   (n) => Marker(
-                    point: n.Position,
-                    child: const Icon(Icons.location_on, color: Colors.red),
+                    point: n.position,
+                    child: GestureDetector(
+                      onTap: () {
+                        showDialog(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: Text("Hapus Marker?"),
+                            content: Text("Hapus Catatan '${n.address}' ?"),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: Text("Batal"),
+                              ),
+                              TextButton(
+                                onPressed: () async {
+                                  setState(() {
+                                    _savedNotes.remove(n);
+                                  });
+                                  await saveNotes();
+                                  Navigator.pop(context);
+                                },
+                                child: Text("Hapus"),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                      child: Icon(
+                        getMarkerIcon(n.type),
+                        color: Colors.red,
+                        size: 35,
+                      ),
+                    ),
                   ),
                 )
                 .toList(),
